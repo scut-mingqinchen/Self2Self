@@ -90,4 +90,4 @@ if __name__ == '__main__':
     sigma = -1
     for file_name in file_list:
         if not os.path.isdir(path + file_name):
-            train(path + file_name, 0.3, sigma)
+            train(path + file_name, 0.3, sigma, is_realnoisy = True)
