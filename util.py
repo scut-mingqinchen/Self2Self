@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import scipy.io as sio
+import random
 
 
 def add_gaussian_noise(img, model_path, sigma):
@@ -24,3 +25,18 @@ def load_np_image(path, is_scale=True):
     if is_scale:
         img = np.array(img).astype(np.float32) / 255.
     return img
+
+
+def mask_pixel(img, model_path, rate):
+    index = model_path.rfind("/")
+    masked_img = img.copy()
+    mask = np.ones_like(masked_img)
+    perm_idx = [i for i in range(np.shape(img)[1] * np.shape(img)[2])]
+    random.shuffle(perm_idx)
+    for i in range(np.int32(np.shape(img)[1] * np.shape(img)[2] * rate)):
+        x, y = np.divmod(perm_idx[i], np.shape(img)[2])
+        masked_img[:, x, y, :] = 0
+        mask[:, x, y, :] = 0
+    cv2.imwrite(model_path[0:index] + '/masked_img.png', np.squeeze(np.uint8(np.clip(masked_img, 0, 1) * 255.)))
+    cv2.imwrite(model_path[0:index] + '/mask.png', np.squeeze(np.uint8(np.clip(mask, 0, 1) * 255.)))
+    return masked_img, mask

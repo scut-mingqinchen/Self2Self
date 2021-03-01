@@ -76,7 +76,7 @@ def Pconv_lr(name, x, fmaps, mask_in):
         return tf.nn.leaky_relu(x_out, alpha=0.1), mask_out
 
 
-def autoencoder(x, mask, channel=3, width=256, height=256, p=0.7, **_kwargs):
+def partial_conv_unet(x, mask, channel=3, width=256, height=256, p=0.7, **_kwargs):
     x.set_shape([None, channel, height, width])
     mask.set_shape([None, channel, height, width])
     skips = [x]
@@ -154,7 +154,7 @@ def build_denoising_unet(noisy, p=0.7, is_realnoisy=False):
     slice_avg = tf.get_variable('slice_avg', shape=[_, h, w, c], initializer=tf.initializers.zeros())
     if is_realnoisy:
         response = tf.squeeze(tf.random_poisson(25 * response, [1]) / 25, 0)
-    response = autoencoder(response, mask_tensor, channel=c, width=w, height=h, p=p)
+    response = partial_conv_unet(response, mask_tensor, channel=c, width=w, height=h, p=p)
     response = tf.transpose(response, [0, 2, 3, 1])
     mask_tensor = tf.transpose(mask_tensor, [0, 2, 3, 1])
     data_loss = mask_loss(response, noisy_tensor, 1. - mask_tensor)
@@ -175,6 +175,40 @@ def build_denoising_unet(noisy, p=0.7, is_realnoisy=False):
         'our_image': our_image,
         'is_flip_lr': is_flip_lr,
         'is_flip_ud': is_flip_ud,
+        'avg_op': avg_op,
+        'slice_avg': slice_avg,
+    }
+
+    return model
+
+
+def build_inpainting_unet(img, mask, p=0.7):
+    _, h, w, c = np.shape(img)
+    img_tensor = tf.identity(img)
+    mask_tensor = tf.identity(mask)
+    response = tf.transpose(img_tensor, [0, 3, 1, 2])
+    mask_tensor_sample = tf.transpose(mask_tensor, [0, 3, 1, 2])
+    mask_tensor_sample = tf.nn.dropout(mask_tensor_sample, 0.7) * 0.7
+    response = tf.multiply(mask_tensor_sample, response)
+    slice_avg = tf.get_variable('slice_avg', shape=[_, h, w, c], initializer=tf.initializers.zeros())
+    response = partial_conv_unet(response, mask_tensor_sample, channel=c, width=w, height=h, p=p)
+    response = tf.transpose(response, [0, 2, 3, 1])
+    mask_tensor_sample = tf.transpose(mask_tensor_sample, [0, 2, 3, 1])
+    data_loss = mask_loss(response, img_tensor, mask_tensor - mask_tensor_sample)
+    avg_op = slice_avg.assign(slice_avg * 0.99 + response * 0.01)
+    our_image = img_tensor + tf.multiply(response, 1 - mask_tensor)
+
+    training_error = data_loss
+    tf.summary.scalar('data loss', data_loss)
+
+    merged = tf.summary.merge_all()
+    saver = tf.train.Saver(max_to_keep=3)
+    model = {
+        'training_error': training_error,
+        'data_loss': data_loss,
+        'saver': saver,
+        'summary': merged,
+        'our_image': our_image,
         'avg_op': avg_op,
         'slice_avg': slice_avg,
     }
